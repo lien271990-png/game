@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Head Tilt Quiz</title>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+<style>
+body{margin:0;font-family:sans-serif;background:linear-gradient(#dfe9f3,#f5e7c4);text-align:center}
+#top{padding:10px;font-weight:bold}
+#question{font-size:24px;margin:10px}
+.container{display:flex;align-items:center;justify-content:center;gap:20px;margin-top:40px}
+.answer{width:35%;padding:30px;border-radius:20px;color:white;font-size:20px}
+#A{background:#2fa4d7}
+#B{background:#ff7043}
+#camera{width:200px;height:200px;border-radius:50%;overflow:hidden;border:6px solid #4caf50}
+video{width:100%;height:100%;object-fit:cover}
+.correct{outline:8px solid lime}
+.wrong{outline:8px solid red}
+#score{position:fixed;top:10px;right:10px}
+</style>
+</head>
+<body>
+<div id="top">Câu <span id="qnum">1</span></div>
+<div id="question">Where are you going to visit this summer?</div>
+<div id="score">? <span id="correct">0</span> ? <span id="wrong">0</span></div>
+<div class="container">
+<div id="A" class="answer">I'm going to visit Phu Quoc Island.</div>
+<div id="camera"><video id="video" autoplay muted></video></div>
+<div id="B" class="answer">I going to visit Phu Quoc Island.</div>
+</div>
+
+<audio id="bg" loop src="https://cdn.pixabay.com/audio/2022/03/15/audio_3c1c8d7c63.mp3"></audio>
+<audio id="correctSound" src="https://cdn.pixabay.com/audio/2022/03/15/audio_9a1f5a2e4c.mp3"></audio>
+<audio id="wrongSound" src="https://cdn.pixabay.com/audio/2022/03/10/audio_270b4b3c62.mp3"></audio>
+<audio id="clap" src="https://cdn.pixabay.com/audio/2022/03/15/audio_5c7f2b2fa6.mp3"></audio>
+<audio id="ew" src="https://cdn.pixabay.com/audio/2022/03/15/audio_f0c4e3c623.mp3"></audio>
+
+<script>
+const questions=[
+{q:"Where are you going to visit this summer?",A:"I'm going to visit Phu Quoc Island.",B:"I going to visit Phu Quoc Island.",correct:"A"},
+{q:"Which sentence is correct?",A:"She go to school.",B:"She goes to school.",correct:"B"}
+]
+
+let index=0
+let lock=false
+let correct=0
+let wrong=0
+
+const qtext=document.getElementById('question')
+const A=document.getElementById('A')
+const B=document.getElementById('B')
+
+function load(){
+let q=questions[index]
+qtext.innerText=q.q
+A.innerText=q.A
+B.innerText=q.B
+}
+
+function choose(ans){
+if(lock)return
+lock=true
+let q=questions[index]
+
+if(ans==q.correct){
+correct++
+document.getElementById('correct').innerText=correct
+if(ans=='A')A.classList.add('correct');else B.classList.add('correct')
+document.getElementById('correctSound').play()
+document.getElementById('clap').play()
+}else{
+wrong++
+document.getElementById('wrong').innerText=wrong
+if(ans=='A')A.classList.add('wrong');else B.classList.add('wrong')
+document.getElementById('wrongSound').play()
+document.getElementById('ew').play()
+}
+
+setTimeout(()=>{
+A.classList.remove('correct','wrong')
+B.classList.remove('correct','wrong')
+index++
+if(index<questions.length){load();lock=false}
+else alert('Game finished')
+},2000)
+}
+
+load()
+
+const video=document.getElementById('video')
+
+const faceMesh=new FaceMesh({locateFile:(file)=>`https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${file}`})
+faceMesh.setOptions({maxNumFaces:1,refineLandmarks:true})
+
+faceMesh.onResults(res=>{
+if(!res.multiFaceLandmarks)return
+let lm=res.multiFaceLandmarks[0]
+let left=lm[234]
+let right=lm[454]
+
+let tilt=right.y-left.y
+
+if(tilt>0.03)choose('A')
+if(tilt<-0.03)choose('B')
+})
+
+const camera=new Camera(video,{onFrame:async()=>{await faceMesh.send({image:video})},width:640,height:480})
+camera.start()
+
+setTimeout(()=>{document.getElementById('bg').volume=0.2;document.getElementById('bg').play()},1000)
+</script>
+</body>
+</html>
