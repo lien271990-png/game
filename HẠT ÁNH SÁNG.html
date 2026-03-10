@@ -1,0 +1,488 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Head Tilt Quiz Master</title>
+    <!-- Load MediaPipe Libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js" crossorigin="anonymous"></script>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Poppins', sans-serif;
+            overflow: hidden;
+            background: #f0f9ff;
+            touch-action: none;
+        }
+        .gradient-bg {
+            background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+        }
+        .answer-card {
+            transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+            border-width: 8px;
+        }
+        .camera-container {
+            width: 240px;
+            height: 180px;
+            border: 4px solid #fff;
+            border-radius: 1rem;
+            overflow: hidden;
+            position: relative;
+            background: #000;
+        }
+        #webcam {
+            transform: scaleX(-1);
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+        }
+        .tilt-indicator {
+            position: absolute;
+            bottom: 10px;
+            left: 50%;
+            transform: translateX(-50%);
+            display: flex;
+            gap: 10px;
+        }
+        .indicator-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255,255,255,0.3);
+        }
+        .indicator-dot.active {
+            background: #4ade80;
+            box-shadow: 0 0 10px #4ade80;
+        }
+        .progress-ring {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            pointer-events: none;
+        }
+        @keyframes shake {
+            0%, 100% { transform: translateX(0); }
+            25% { transform: translateX(-10px); }
+            75% { transform: translateX(10px); }
+        }
+        .shake { animation: shake 0.2s ease-in-out 0s 2; }
+        
+        /* Confetti Styles */
+        .confetti {
+            position: absolute;
+            width: 10px;
+            height: 10px;
+            pointer-events: none;
+            z-index: 100;
+        }
+    </style>
+</head>
+<body class="flex flex-col items-center justify-center min-h-screen p-4">
+
+    <!-- Loading Overlay -->
+    <div id="loading" class="fixed inset-0 z-50 flex flex-col items-center justify-center bg-white">
+        <div class="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4"></div>
+        <p class="text-xl font-semibold text-blue-600">Loading AI Camera...</p>
+    </div>
+
+    <!-- Start Screen -->
+    <div id="start-screen" class="fixed inset-0 z-40 flex flex-col items-center justify-center bg-blue-500 text-white p-8 text-center">
+        <h1 class="text-6xl font-extrabold mb-6">Tilt Quiz Master! 🎓</h1>
+        <p class="text-2xl mb-8 max-w-2xl">Tilt your head <span class="font-bold text-yellow-300">LEFT</span> or <span class="font-bold text-yellow-300">RIGHT</span> to select the correct answer. Hold for 1 second!</p>
+        <button id="start-btn" class="bg-white text-blue-600 px-12 py-6 rounded-full text-3xl font-bold shadow-2xl hover:scale-105 active:scale-95 transition-transform">
+            START GAME
+        </button>
+    </div>
+
+    <!-- Game UI -->
+    <div class="w-full max-w-6xl flex flex-col items-center space-y-8">
+        
+        <!-- Header Info -->
+        <div class="w-full flex justify-between items-center px-4">
+            <div class="text-2xl font-bold text-blue-800 bg-white px-6 py-2 rounded-full shadow-sm">
+                Score: <span id="score-val">0</span>
+            </div>
+            <div class="flex gap-4">
+                <button id="toggle-sound" class="bg-white p-3 rounded-full shadow-sm text-2xl">🔊</button>
+                <button id="toggle-fullscreen" class="bg-white p-3 rounded-full shadow-sm text-2xl">⛶</button>
+            </div>
+        </div>
+
+        <!-- Question Text -->
+        <div id="question-container" class="bg-white w-full p-10 rounded-3xl shadow-xl text-center">
+            <h2 id="question-text" class="text-4xl md:text-5xl font-extrabold text-gray-800 leading-tight">
+                Preparing Question...
+            </h2>
+        </div>
+
+        <!-- Selection Area -->
+        <div class="flex w-full items-center justify-between gap-6 flex-col md:flex-row">
+            
+            <!-- Answer A (Left) -->
+            <div id="card-a" class="answer-card flex-1 w-full bg-white rounded-3xl p-8 flex items-center justify-center text-center border-gray-100 shadow-lg cursor-pointer min-h-[200px]">
+                <span id="text-a" class="text-3xl font-bold text-blue-700">Answer A</span>
+            </div>
+
+            <!-- Central Camera View -->
+            <div class="flex flex-col items-center gap-4">
+                <div class="camera-container shadow-2xl">
+                    <video id="webcam" autoplay playsinline></video>
+                    <!-- Progress Ring Overlay -->
+                    <svg class="progress-ring" width="120" height="120">
+                        <circle id="progress-circle" stroke="white" stroke-width="8" fill="transparent" r="50" cx="60" cy="60" stroke-dasharray="314.15" stroke-dashoffset="314.15" />
+                    </svg>
+                    <div class="tilt-indicator">
+                        <div id="dot-left" class="indicator-dot"></div>
+                        <div id="dot-center" class="indicator-dot active"></div>
+                        <div id="dot-right" class="indicator-dot"></div>
+                    </div>
+                </div>
+                <div class="text-sm font-medium text-blue-500 uppercase tracking-widest">Head Controls</div>
+            </div>
+
+            <!-- Answer B (Right) -->
+            <div id="card-b" class="answer-card flex-1 w-full bg-white rounded-3xl p-8 flex items-center justify-center text-center border-gray-100 shadow-lg cursor-pointer min-h-[200px]">
+                <span id="text-b" class="text-3xl font-bold text-blue-700">Answer B</span>
+            </div>
+
+        </div>
+    </div>
+
+    <!-- Feedback Overlays -->
+    <div id="feedback-correct" class="hidden fixed inset-0 z-[60] flex flex-col items-center justify-center bg-green-500 bg-opacity-90 text-white pointer-events-none">
+        <div class="text-9xl mb-4 animate-bounce">🎉</div>
+        <h2 class="text-7xl font-black">WELL DONE!</h2>
+    </div>
+
+    <div id="feedback-wrong" class="hidden fixed inset-0 z-[60] flex flex-col items-center justify-center bg-red-500 bg-opacity-90 text-white pointer-events-none">
+        <div class="text-9xl mb-4">❌</div>
+        <h2 class="text-7xl font-black text-center">TRY AGAIN!</h2>
+    </div>
+
+    <script type="module">
+        import { FaceLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js";
+
+        // ==========================================
+        // 1. TEACHER EDITABLE QUESTIONS
+        // ==========================================
+        const questions = [
+            {
+                question: "What's your name?",
+                A: "My name is Lan.",
+                B: "My name Lan.",
+                correct: "A"
+            },
+            {
+                question: "How old are you?",
+                A: "I am ten years old.",
+                B: "I ten years old.",
+                correct: "A"
+            },
+            {
+                question: "Where is the Eiffel Tower?",
+                A: "London",
+                B: "Paris",
+                correct: "B"
+            },
+            {
+                question: "Which one is a mammal?",
+                A: "Whale",
+                B: "Shark",
+                correct: "A"
+            },
+            {
+                question: "What color is a banana?",
+                A: "Yellow",
+                B: "Purple",
+                correct: "A"
+            }
+        ];
+
+        // ==========================================
+        // 2. STATE & CONSTANTS
+        // ==========================================
+        let currentQuestionIndex = 0;
+        let score = 0;
+        let isSoundOn = true;
+        let faceLandmarker;
+        let lastVideoTime = -1;
+        let isGameStarted = false;
+        let isProcessingAnswer = false;
+
+        // Selection variables
+        let currentTilt = "center"; // "left", "right", "center"
+        let tiltHoldTime = 0;
+        const HOLD_THRESHOLD = 1200; // ms to confirm selection
+
+        // UI Elements
+        const video = document.getElementById("webcam");
+        const loadingScreen = document.getElementById("loading");
+        const startScreen = document.getElementById("start-screen");
+        const questionText = document.getElementById("question-text");
+        const textA = document.getElementById("text-a");
+        const textB = document.getElementById("text-b");
+        const cardA = document.getElementById("card-a");
+        const cardB = document.getElementById("card-b");
+        const scoreVal = document.getElementById("score-val");
+        const progressCircle = document.getElementById("progress-circle");
+        const feedbackCorrect = document.getElementById("feedback-correct");
+        const feedbackWrong = document.getElementById("feedback-wrong");
+
+        // Audio Context (Mocked for better classroom use)
+        const playSound = (type) => {
+            if (!isSoundOn) return;
+            const audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            const oscillator = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+            
+            oscillator.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            
+            if (type === 'correct') {
+                oscillator.type = 'sine';
+                oscillator.frequency.setValueAtTime(440, audioCtx.currentTime);
+                oscillator.frequency.exponentialRampToValueAtTime(880, audioCtx.currentTime + 0.5);
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.5);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.5);
+            } else if (type === 'wrong') {
+                oscillator.type = 'sawtooth';
+                oscillator.frequency.setValueAtTime(150, audioCtx.currentTime);
+                oscillator.frequency.linearRampToValueAtTime(100, audioCtx.currentTime + 0.3);
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.3);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.3);
+            } else if (type === 'click') {
+                oscillator.type = 'triangle';
+                oscillator.frequency.setValueAtTime(600, audioCtx.currentTime);
+                gainNode.gain.setValueAtTime(0.05, audioCtx.currentTime);
+                gainNode.gain.linearRampToValueAtTime(0.01, audioCtx.currentTime + 0.1);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.1);
+            }
+        };
+
+        // ==========================================
+        // 3. INITIALIZATION
+        // ==========================================
+        async function setupAI() {
+            const filesetResolver = await FilesetResolver.forVisionTasks(
+                "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+            );
+            faceLandmarker = await FaceLandmarker.createFromOptions(filesetResolver, {
+                baseOptions: {
+                    modelAssetPath: `https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/1/face_landmarker.task`,
+                    delegate: "GPU"
+                },
+                outputFaceBlendshapes: true,
+                runningMode: "VIDEO",
+                numFaces: 1
+            });
+            loadingScreen.classList.add('hidden');
+        }
+
+        async function setupCamera() {
+            const constraints = { video: { width: 640, height: 480 } };
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            video.addEventListener("loadeddata", predictWebcam);
+        }
+
+        // ==========================================
+        // 4. CORE LOGIC
+        // ==========================================
+        async function predictWebcam() {
+            if (lastVideoTime !== video.currentTime) {
+                lastVideoTime = video.currentTime;
+                const results = faceLandmarker.detectForVideo(video, lastVideoTime);
+                
+                if (results.faceLandmarks && results.faceLandmarks.length > 0) {
+                    const landmarks = results.faceLandmarks[0];
+                    // Detect tilt using eyes (landmarks 33 and 263)
+                    const leftEye = landmarks[33];
+                    const rightEye = landmarks[263];
+                    
+                    // Angle in screen space
+                    const dy = rightEye.y - leftEye.y;
+                    const dx = rightEye.x - leftEye.x;
+                    const angle = Math.atan2(dy, dx) * (180 / Math.PI);
+                    
+                    // Reversed because of mirrored webcam:
+                    // dy > 0.05 roughly means left eye is higher = tilted right
+                    // Since camera is mirrored, we check values
+                    processTilt(angle);
+                } else {
+                    processTilt(0); // Center if no face
+                }
+            }
+            window.requestAnimationFrame(predictWebcam);
+        }
+
+        function processTilt(angle) {
+            if (!isGameStarted || isProcessingAnswer) return;
+
+            // Thresholds for tilt (adjusted for mirror and comfort)
+            const TILT_LIMIT = 12; 
+            let targetTilt = "center";
+
+            if (angle > TILT_LIMIT) targetTilt = "left";
+            else if (angle < -TILT_LIMIT) targetTilt = "right";
+
+            // Update State
+            if (targetTilt !== currentTilt) {
+                currentTilt = targetTilt;
+                tiltHoldTime = 0;
+                updateVisuals();
+                if (currentTilt !== "center") playSound('click');
+            } else if (currentTilt !== "center") {
+                tiltHoldTime += 16; // Approx ms per frame
+                updateProgressRing();
+                
+                if (tiltHoldTime >= HOLD_THRESHOLD) {
+                    handleSelection(currentTilt === "left" ? "A" : "B");
+                    tiltHoldTime = 0;
+                }
+            } else {
+                updateProgressRing();
+            }
+        }
+
+        function updateVisuals() {
+            // Cards
+            cardA.classList.remove('border-blue-500', 'bg-blue-50');
+            cardB.classList.remove('border-blue-500', 'bg-blue-50');
+            
+            document.getElementById('dot-left').classList.remove('active');
+            document.getElementById('dot-center').classList.remove('active');
+            document.getElementById('dot-right').classList.remove('active');
+
+            if (currentTilt === "left") {
+                cardA.classList.add('border-blue-500', 'bg-blue-50');
+                document.getElementById('dot-left').classList.add('active');
+            } else if (currentTilt === "right") {
+                cardB.classList.add('border-blue-500', 'bg-blue-50');
+                document.getElementById('dot-right').classList.add('active');
+            } else {
+                document.getElementById('dot-center').classList.add('active');
+            }
+        }
+
+        function updateProgressRing() {
+            const circumference = 314.15;
+            const progress = Math.min(tiltHoldTime / HOLD_THRESHOLD, 1);
+            const offset = circumference - (progress * circumference);
+            progressCircle.style.strokeDashoffset = offset;
+            progressCircle.style.stroke = progress > 0.9 ? "#4ade80" : "white";
+        }
+
+        function handleSelection(choice) {
+            isProcessingAnswer = true;
+            const q = questions[currentQuestionIndex];
+            const isCorrect = choice === q.correct;
+            const card = choice === "A" ? cardA : cardB;
+
+            if (isCorrect) {
+                score += 10;
+                scoreVal.innerText = score;
+                card.classList.add('border-green-500', 'bg-green-50');
+                feedbackCorrect.classList.remove('hidden');
+                playSound('correct');
+                spawnConfetti();
+                
+                setTimeout(() => {
+                    feedbackCorrect.classList.add('hidden');
+                    nextQuestion();
+                }, 2000);
+            } else {
+                card.classList.add('border-red-500', 'bg-red-50');
+                document.body.classList.add('shake');
+                feedbackWrong.classList.remove('hidden');
+                playSound('wrong');
+                
+                setTimeout(() => {
+                    document.body.classList.remove('shake');
+                    feedbackWrong.classList.add('hidden');
+                    card.classList.remove('border-red-500', 'bg-red-50');
+                    isProcessingAnswer = false;
+                    updateVisuals();
+                }, 1500);
+            }
+        }
+
+        function nextQuestion() {
+            currentQuestionIndex++;
+            if (currentQuestionIndex >= questions.length) {
+                currentQuestionIndex = 0; // Loop questions
+            }
+            loadQuestion();
+            isProcessingAnswer = false;
+            updateVisuals();
+        }
+
+        function loadQuestion() {
+            const q = questions[currentQuestionIndex];
+            questionText.innerText = q.question;
+            textA.innerText = q.A;
+            textB.innerText = q.B;
+            
+            // Reset borders
+            cardA.className = "answer-card flex-1 w-full bg-white rounded-3xl p-8 flex items-center justify-center text-center border-gray-100 shadow-lg cursor-pointer min-h-[200px]";
+            cardB.className = "answer-card flex-1 w-full bg-white rounded-3xl p-8 flex items-center justify-center text-center border-gray-100 shadow-lg cursor-pointer min-h-[200px]";
+        }
+
+        // ==========================================
+        // 5. DECORATION & UTILS
+        // ==========================================
+        function spawnConfetti() {
+            for (let i = 0; i < 50; i++) {
+                const confetti = document.createElement('div');
+                confetti.className = 'confetti';
+                confetti.style.left = Math.random() * 100 + 'vw';
+                confetti.style.top = '-10px';
+                confetti.style.backgroundColor = `hsl(${Math.random() * 360}, 70%, 50%)`;
+                confetti.style.transform = `rotate(${Math.random() * 360}deg)`;
+                document.body.appendChild(confetti);
+
+                const animation = confetti.animate([
+                    { transform: `translate(0, 0) rotate(0deg)`, opacity: 1 },
+                    { transform: `translate(${(Math.random() - 0.5) * 200}px, 100vh) rotate(${Math.random() * 720}deg)`, opacity: 0 }
+                ], {
+                    duration: 2000 + Math.random() * 1000,
+                    easing: 'cubic-bezier(0, .9, .57, 1)'
+                });
+
+                animation.onfinish = () => confetti.remove();
+            }
+        }
+
+        // Controls
+        document.getElementById('start-btn').onclick = () => {
+            startScreen.classList.add('hidden');
+            isGameStarted = true;
+            loadQuestion();
+            setupCamera();
+        };
+
+        document.getElementById('toggle-sound').onclick = (e) => {
+            isSoundOn = !isSoundOn;
+            e.target.innerText = isSoundOn ? "🔊" : "muted";
+        };
+
+        document.getElementById('toggle-fullscreen').onclick = () => {
+            if (!document.fullscreenElement) {
+                document.documentElement.requestFullscreen();
+            } else {
+                document.exitFullscreen();
+            }
+        };
+
+        // Initialize on load
+        window.onload = setupAI;
+
+    </script>
+</body>
+</html>
